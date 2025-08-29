@@ -1,8 +1,12 @@
+#define _GNU_SOURCE
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <getopt.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 struct unspace_input {
     // Flags/options
@@ -64,6 +68,52 @@ void show_inputs(struct unspace_input const *input)
     }
 }
 
+size_t get_max_len(char *const *files, size_t filec)
+{
+    size_t ret = 0;
+    size_t len;
+
+    for (size_t i = 0; i < filec; i++) {
+        len = strlen(files[i]);
+        if (len > ret) {
+            ret = len;
+        }
+    }
+    return ret;
+}
+
+int unspace(char const *pname, struct unspace_input *input)
+{
+    char renamebuf[get_max_len(input->files, input->filec) + 1] = {};
+    int ret = 0;
+
+    for (size_t i = 0; i < input->filec; i++) {
+        bool renamed = false;
+
+        strcpy(renamebuf, input->files[i]);
+        for (size_t j = 0; renamebuf[j]; j++) {
+            if (renamebuf[j] == ' ') {
+                renamebuf[j] = input->replace;
+                renamed = true;
+            }
+        }
+        if (!renamed) {
+            fprintf(stderr, "%s: ignoring input '%s' (no spaces)\n", pname, renamebuf);
+            continue;
+        }
+        if (renameat2(AT_FDCWD, input->files[i], AT_FDCWD, renamebuf, RENAME_NOREPLACE)) {
+            fprintf(stderr, "%s: error renaming '%s': %s\n",
+                    pname, input->files[i], strerror(errno));
+            ret = 1;
+            continue;
+        }
+        if (input->verbose) {
+            printf("%s: '%s' -> '%s'\n", pname, input->files[i], renamebuf);
+        }
+    }
+    return ret;
+}
+
 int main(int argc, char **argv)
 {
     struct unspace_input input = {
@@ -80,4 +130,6 @@ int main(int argc, char **argv)
     if (input.dump_options) {
         show_inputs(&input);
     }
+
+    return unspace(argv[0], &input);
 }
