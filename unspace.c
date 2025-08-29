@@ -35,6 +35,19 @@ struct linux_dirent64 {
     char           d_name[]; /* Filename (null-terminated) */
 };
 
+int check_filename_lengths(char const *pname, struct unspace_input const *input)
+{
+    int ret = 0;
+
+    for (size_t i = 0; i < input->filec; i++) {
+        if (strlen(input->files[i]) > PATH_MAX - 1) {
+            fprintf(stderr, "%s: pathname too long: '%s'\n", pname, input->files[i]);
+            ret = 1;
+        }
+    }
+    return ret;
+}
+
 int read_cli(int argc, char **argv, struct unspace_input *input)
 {
     int opt;
@@ -68,7 +81,7 @@ int read_cli(int argc, char **argv, struct unspace_input *input)
     }
     input->files = &argv[optind];
     input->filec = argc - optind;
-    return 0;
+    return check_filename_lengths(argv[0], input);
 }
 
 void show_inputs(struct unspace_input const *input)
