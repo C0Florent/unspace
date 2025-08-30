@@ -13,6 +13,7 @@ struct unspace_input {
         bool verbose;
         char replace;
         bool recursive;
+        bool dry_run;
     } o;
 
     // "Control"-like arguments

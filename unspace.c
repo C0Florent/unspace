@@ -55,7 +55,7 @@ int unspace(
         }
         return 0;
     }
-    if (renameat2(dirfd, filename, dirfd, renamebuf, RENAME_NOREPLACE)) {
+    if (!options->dry_run && renameat2(dirfd, filename, dirfd, renamebuf, RENAME_NOREPLACE)) {
         fprintf(stderr, "%s:%s error renaming '%s': %s\n",
                 pname, rec_data->padding, filename, strerror(errno));
         return 1;
@@ -169,6 +169,7 @@ int main(int argc, char **argv)
         .o.verbose = false,
         .o.replace = '_',
         .o.recursive = false,
+        .o.dry_run = false,
         .files = NULL,
         .filec = 0,
     };

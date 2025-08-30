@@ -21,7 +21,7 @@ int read_cli(int argc, char **argv, struct unspace_input *input)
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "vrdc:")) != -1) {
+    while ((opt = getopt(argc, argv, "vrdnc:")) != -1) {
         switch (opt) {
         case 'v':
             input->o.verbose = true;
@@ -31,6 +31,10 @@ int read_cli(int argc, char **argv, struct unspace_input *input)
             break;
         case 'd':
             input->dump_input = true;
+            break;
+        case 'n':
+            input->o.dry_run = true;
+            input->o.verbose = true;
             break;
         case 'c':
             if (strlen(optarg) != 1) {
