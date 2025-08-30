@@ -27,6 +27,12 @@ struct unspace_input {
     size_t filec;
 };
 
+// data shared between recursive calls of unspace_rec
+struct unspace_rec_data {
+    char padding[PATH_MAX];
+    size_t depth; // = aka the index of the first \0 in `padding`
+};
+
 struct linux_dirent64 {
     ino64_t        d_ino;    /* 64-bit inode number */
     off64_t        d_off;    /* Not an offset; see getdents() */
@@ -113,11 +119,18 @@ const char *get_fd_filename(int fd)
     }
 }
 
+bool should_recurse_into(struct linux_dirent64 const *d)
+{
+    return (d->d_type == DT_DIR || d->d_type == DT_UNKNOWN)
+        && strcmp(".", d->d_name) && strcmp("..", d->d_name);
+}
+
 int unspace(
     char const *pname,
     struct unspace_options *options,
     int dirfd,
-    char const *filename
+    char const *filename,
+    struct unspace_rec_data *rec_data
 )
 {
     static char renamebuf[PATH_MAX] = {0};
@@ -132,17 +145,19 @@ int unspace(
     }
     if (!renamed) {
         if (!options->recursive) {
-            fprintf(stderr, "%s: ignoring input '%s' (no spaces)\n", pname, renamebuf);
+            fprintf(stderr,
+                    "%s:%s ignoring input '%s' (no spaces)\n",
+                    pname, rec_data->padding, renamebuf);
         }
         return 0;
     }
     if (renameat2(dirfd, filename, dirfd, renamebuf, RENAME_NOREPLACE)) {
-        fprintf(stderr, "%s: error renaming '%s': %s\n",
-                pname, filename, strerror(errno));
+        fprintf(stderr, "%s:%s error renaming '%s': %s\n",
+                pname, rec_data->padding, filename, strerror(errno));
         return 1;
     }
     if (options->verbose) {
-        printf("%s: '%s' -> '%s'\n", pname, filename, renamebuf);
+        printf("%s:%s '%s' -> '%s'\n", pname, rec_data->padding, filename, renamebuf);
     }
     return 0;
 }
@@ -151,7 +166,50 @@ int unspace_rec(
     char const *pname,
     struct unspace_options *options,
     int current_dirfd,
-    char const *entry
+    char const *entry,
+    struct unspace_rec_data *rec_data
+);
+// "unspaces" a single linux_dirent64 directory entry.
+int unspace_rec_direntry(
+    char const *pname,
+    struct unspace_options *options,
+    int dirfd,
+    struct linux_dirent64 *d,
+    struct unspace_rec_data *rec_data
+)
+{
+    int ret;
+
+    if (!should_recurse_into(d)) {
+        return unspace(pname, options, dirfd, d->d_name, rec_data);
+    }
+    if (options->verbose) {
+        rec_data->padding[rec_data->depth] = ' ';
+        rec_data->depth++;
+        rec_data->padding[rec_data->depth] = '\0';
+    }
+
+    ret = unspace_rec(pname, options, dirfd, d->d_name, rec_data);
+
+    if (options->verbose) {
+        rec_data->padding[rec_data->depth] = ' ';
+        rec_data->depth--;
+        rec_data->padding[rec_data->depth] = '\0';
+    }
+    return ret;
+}
+
+// "unspaces" `entry` located in `current_dirfd`
+// a non-directory `entry` is immediately renamed by calling `unspace`
+// a directory `entry` will be opened, and its subentries are looped over:
+//  each subentry is going to be fed into `unspace_rec_direntry`
+// after looping on subentries, the directory itself is unspaced.
+int unspace_rec(
+    char const *pname,
+    struct unspace_options *options,
+    int current_dirfd,
+    char const *entry,
+    struct unspace_rec_data *rec_data
 )
 {
     int ret = 0;
@@ -160,14 +218,18 @@ int unspace_rec(
     ssize_t nread;
 
     if (subdirfd < 0 && (errno == ENOTDIR || errno == ELOOP)) {
-        return unspace(pname, options, current_dirfd, entry);
+        return unspace(pname, options, current_dirfd, entry, rec_data);
     }
     if (subdirfd < 0) {
         fprintf(stderr,
-                "%s: found weird or invalid entry '%s/%s' (might be an implementation mistake): '%s'\n",
-                pname, get_fd_filename(current_dirfd), entry, strerror(errno));
+                "%s:%s found weird or invalid entry '%s/%s' (might be an implementation mistake): '%s'\n",
+                pname, rec_data->padding, get_fd_filename(current_dirfd), entry, strerror(errno));
         return 1;
     }
+    if (options->verbose) {
+        printf("%s:%s recursing into '%s'\n", pname, rec_data->padding, entry);
+    }
+
     getdents_buf = malloc(sizeof(char) * GETDENTS_BUFSIZ);
     if (!getdents_buf) {
         fprintf(stderr, "%s: failed allocation: %s\n", pname, strerror(errno));
@@ -179,13 +241,7 @@ int unspace_rec(
 
         for (ssize_t bpos = 0; bpos < nread;) {
             d = (struct linux_dirent64 *)&getdents_buf[bpos];
-
-            if ((d->d_type == DT_DIR || d->d_type == DT_UNKNOWN)
-            && strcmp(".", d->d_name) && strcmp("..", d->d_name)) {
-                ret |= unspace_rec(pname, options, subdirfd, d->d_name);
-            }
-            ret |= unspace(pname, options, subdirfd, d->d_name);
-
+            unspace_rec_direntry(pname, options, subdirfd, d, rec_data);
             bpos += d->d_reclen;
         }
     }
@@ -199,7 +255,8 @@ int unspace_rec(
     }
     close(subdirfd);
     free(getdents_buf);
-    return ret;
+
+    return ret | unspace(pname, options, current_dirfd, entry, rec_data);
 }
 
 int main(int argc, char **argv)
@@ -211,6 +268,10 @@ int main(int argc, char **argv)
         .files = NULL,
         .filec = 0,
     };
+    struct unspace_rec_data rec_data = {
+        .padding = {0},
+        .depth = 0,
+    };
     int ret = 0;
 
     if (read_cli(argc, argv, &input)) {
@@ -220,11 +281,13 @@ int main(int argc, char **argv)
         show_inputs(&input);
     }
 
+    int (*unsp)(char const *, struct unspace_options *, int, char const *, struct unspace_rec_data *) = input.o.recursive
+        ? &unspace_rec
+        : &unspace
+    ;
+
     for (size_t i = 0; i < input.filec; i++) {
-        if (input.o.recursive) {
-            unspace_rec(argv[0], &input.o, AT_FDCWD, input.files[i]);
-        }
-        ret |= unspace(argv[0], &input.o, AT_FDCWD, input.files[i]);
+        ret |= unsp(argv[0], &input.o, AT_FDCWD, input.files[i], &rec_data);
     }
 
     return ret;
