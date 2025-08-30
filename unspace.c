@@ -11,27 +11,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include "unspace.h"
+
 #define GETDENTS_BUFSIZ 2048
-
-struct unspace_input {
-    // Actual runtime options (affect the behaviour within the renaming loops)
-    struct unspace_options {
-        bool verbose;
-        char replace;
-        bool recursive;
-    } o;
-
-    // "Control"-like arguments
-    bool dump_input;
-    char **files;
-    size_t filec;
-};
-
-// data shared between recursive calls of unspace_rec
-struct unspace_rec_data {
-    char padding[PATH_MAX];
-    size_t depth; // = aka the index of the first \0 in `padding`
-};
 
 struct linux_dirent64 {
     ino64_t        d_ino;    /* 64-bit inode number */
@@ -40,84 +22,6 @@ struct linux_dirent64 {
     unsigned char  d_type;   /* File type */
     char           d_name[]; /* Filename (null-terminated) */
 };
-
-int check_filename_lengths(char const *pname, struct unspace_input const *input)
-{
-    int ret = 0;
-
-    for (size_t i = 0; i < input->filec; i++) {
-        if (strlen(input->files[i]) > PATH_MAX - 1) {
-            fprintf(stderr, "%s: pathname too long: '%s'\n", pname, input->files[i]);
-            ret = 1;
-        }
-    }
-    return ret;
-}
-
-int read_cli(int argc, char **argv, struct unspace_input *input)
-{
-    int opt;
-
-    while ((opt = getopt(argc, argv, "vrdc:")) != -1) {
-        switch (opt) {
-        case 'v':
-            input->o.verbose = true;
-            break;
-        case 'r':
-            input->o.recursive = true;
-            break;
-        case 'd':
-            input->dump_input = true;
-            break;
-        case 'c':
-            if (strlen(optarg) != 1) {
-                fprintf(stderr, "-c option expects a single character\n");
-                return 1;
-            }
-            input->o.replace = optarg[0];
-            break;
-        default:
-            fprintf(stderr, "Usage: %s [-vrd] [-c replacechar] file...\n", argv[0]);
-            return 1;
-        }
-    }
-    if (optind >= argc) {
-        fprintf(stderr, "%s: Expected at least one file argument\n", argv[0]);
-        return 1;
-    }
-    input->files = &argv[optind];
-    input->filec = argc - optind;
-    return check_filename_lengths(argv[0], input);
-}
-
-void show_inputs(struct unspace_input const *input)
-{
-    printf("verbose: %i\n", input->o.verbose);
-    printf("recursive: %i\n", input->o.recursive);
-    printf("dump_input: %i\n", input->dump_input);
-    printf("replace: %c\n", input->o.replace);
-    printf("files:\n");
-    for (size_t i = 0; i < input->filec; i++) {
-        printf("- %s\n", input->files[i]);
-    }
-}
-
-const char *get_fd_filename(int fd)
-{
-    static char ret[PATH_MAX];
-    char searchpath[128];
-    ssize_t retlen;
-
-    sprintf(searchpath, "/proc/self/fd/%i", fd);
-    retlen = readlink(searchpath, ret, PATH_MAX);
-
-    if (retlen < 0) {
-        return "<unknown>";
-    } else {
-        ret[retlen] = '\0';
-        return ret;
-    }
-}
 
 bool should_recurse_into(struct linux_dirent64 const *d)
 {
