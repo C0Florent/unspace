@@ -17,6 +17,7 @@ struct unspace_input {
     } o;
 
     // "Control"-like arguments
+    bool show_version;
     bool dump_input;
     char **files;
     size_t filec;

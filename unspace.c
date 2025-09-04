@@ -11,6 +11,9 @@
 #include "unspace.h"
 
 #define GETDENTS_BUFSIZ 2048
+#ifndef UNSPACE_VERSION
+    #define UNSPACE_VERSION "unknown version"
+#endif
 
 struct linux_dirent64 {
     ino64_t        d_ino;    /* 64-bit inode number */
@@ -158,6 +161,10 @@ int main(int argc, char **argv)
     }
     if (input.dump_input) {
         show_inputs(&input);
+    }
+    if (input.show_version) {
+        printf("%s %s\n", argv[0], UNSPACE_VERSION);
+        return 0;
     }
 
     int (*unsp)(char const *, struct unspace_options *, int, char const *, struct unspace_rec_data *) = input.o.recursive

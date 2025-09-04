@@ -21,7 +21,7 @@ int read_cli(int argc, char **argv, struct unspace_input *input)
 {
     int opt;
 
-    while ((opt = getopt(argc, argv, "vrdnc:")) != -1) {
+    while ((opt = getopt(argc, argv, "Vvrdnc:")) != -1) {
         switch (opt) {
         case 'v':
             input->o.verbose = true;
@@ -43,12 +43,15 @@ int read_cli(int argc, char **argv, struct unspace_input *input)
             }
             input->o.replace = optarg[0];
             break;
+        case 'V':
+            input->show_version = true;
+            break;
         default:
             fprintf(stderr, "Usage: %s [-vrd] [-c replacechar] file...\n", argv[0]);
             return 1;
         }
     }
-    if (optind >= argc) {
+    if (optind >= argc && !input->show_version) {
         fprintf(stderr, "%s: Expected at least one file argument\n", argv[0]);
         return 1;
     }
