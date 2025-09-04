@@ -63,47 +63,11 @@ int unspace(
     return 0;
 }
 
-int unspace_rec(
-    char const *pname,
-    struct unspace_options *options,
-    int current_dirfd,
-    char const *entry,
-    struct unspace_rec_data *rec_data
-);
-// "unspaces" a single linux_dirent64 directory entry.
-int unspace_rec_direntry(
-    char const *pname,
-    struct unspace_options *options,
-    int dirfd,
-    struct linux_dirent64 *d,
-    struct unspace_rec_data *rec_data
-)
-{
-    int ret;
-
-    if (!should_recurse_into(d)) {
-        return unspace(pname, options, dirfd, d->d_name, rec_data);
-    }
-    if (options->verbose) {
-        rec_data->padding[rec_data->depth] = ' ';
-        rec_data->depth++;
-        rec_data->padding[rec_data->depth] = '\0';
-    }
-
-    ret = unspace_rec(pname, options, dirfd, d->d_name, rec_data);
-
-    if (options->verbose) {
-        rec_data->padding[rec_data->depth] = ' ';
-        rec_data->depth--;
-        rec_data->padding[rec_data->depth] = '\0';
-    }
-    return ret;
-}
-
 // "unspaces" `entry` located in `current_dirfd`
 // a non-directory `entry` is immediately renamed by calling `unspace`
 // a directory `entry` will be opened, and its subentries are looped over:
-//  each subentry is going to be fed into `unspace_rec_direntry`
+//  if a subentry can be known not to be a directory, we simply `unspace` it,
+//  otherwise it will be recursed into by calling `unspace_rec`
 // after looping on subentries, the directory itself is unspaced.
 int unspace_rec(
     char const *pname,
@@ -127,9 +91,6 @@ int unspace_rec(
                 pname, rec_data->padding, get_fd_filename(current_dirfd), entry, strerror(errno));
         return 1;
     }
-    if (options->verbose) {
-        printf("%s:%s recursing into '%s'\n", pname, rec_data->padding, entry);
-    }
 
     getdents_buf = malloc(sizeof(char) * GETDENTS_BUFSIZ);
     if (!getdents_buf) {
@@ -137,22 +98,38 @@ int unspace_rec(
         close(subdirfd);
         return 1;
     }
+
+    if (options->verbose) {
+        printf("%s:%s recursing into '%s'\n", pname, rec_data->padding, entry);
+
+        rec_data->padding[rec_data->depth] = ' ';
+        rec_data->depth++;
+        rec_data->padding[rec_data->depth] = '\0';
+    }
+
     while ((nread = getdents64(subdirfd, getdents_buf, GETDENTS_BUFSIZ)) > 0) {
         struct linux_dirent64 *d;
 
         for (ssize_t bpos = 0; bpos < nread;) {
             d = (struct linux_dirent64 *)&getdents_buf[bpos];
-            unspace_rec_direntry(pname, options, subdirfd, d, rec_data);
+
+            if (!should_recurse_into(d)) {
+                ret |= unspace(pname, options, subdirfd, d->d_name, rec_data);
+            } else {
+                ret |= unspace_rec(pname, options, subdirfd, d->d_name, rec_data);
+            }
+
             bpos += d->d_reclen;
         }
     }
     if (nread < 0) {
         fprintf(stderr, "%s: Failed reading directory entries for '%s': %s\n",
                 pname, get_fd_filename(subdirfd), strerror(errno));
-        close(subdirfd);
-        free(getdents_buf);
-
-        return 1;
+        ret = 1;
+    }
+    if (options->verbose) {
+        rec_data->depth--;
+        rec_data->padding[rec_data->depth] = '\0';
     }
     close(subdirfd);
     free(getdents_buf);
