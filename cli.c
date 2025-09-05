@@ -20,8 +20,18 @@ static int check_filename_lengths(char const *pname, struct unspace_input const 
 int read_cli(int argc, char **argv, struct unspace_input *input)
 {
     int opt;
+    static struct option long_options[] = {
+        {"verbose",    no_argument,       0, 'v'},
+        {"version",    no_argument,       0, 'V'},
+        {"dry-run",    no_argument,       0, 'n'},
+        {"recursive",  no_argument,       0, 'r'},
+        {"dump-input", no_argument,       0, 'd'},
+        {"character",  required_argument, 0, 'c'},
+        {"replace",    required_argument, 0, 'c'},
+        {0},
+    };
 
-    while ((opt = getopt(argc, argv, "Vvrdnc:")) != -1) {
+    while ((opt = getopt_long(argc, argv, "Vvrdnc:", long_options, NULL)) != -1) {
         switch (opt) {
         case 'v':
             input->o.verbose = true;
