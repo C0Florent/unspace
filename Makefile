@@ -1,4 +1,4 @@
-CFLAGS+=-Wall -Wextra -I.
+CFLAGS+=-Wall -Wextra -I. -std=gnu23
 VERSIONFILE=./VERSION
 
 unspace: unspace.o cli.o utils.o

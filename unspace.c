@@ -31,7 +31,7 @@ bool should_recurse_into(struct linux_dirent64 const *d)
 
 int unspace(
     char const *pname,
-    struct unspace_options *options,
+    struct unspace_options const *options,
     int dirfd,
     char const *filename,
     struct unspace_rec_data *rec_data
@@ -74,7 +74,7 @@ int unspace(
 // after looping on subentries, the directory itself is unspaced.
 int unspace_rec(
     char const *pname,
-    struct unspace_options *options,
+    struct unspace_options const *options,
     int current_dirfd,
     char const *entry,
     struct unspace_rec_data *rec_data
@@ -167,7 +167,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    int (*unsp)(char const *, struct unspace_options *, int, char const *, struct unspace_rec_data *) = input.o.recursive
+    auto unsp = input.o.recursive
         ? &unspace_rec
         : &unspace
     ;
